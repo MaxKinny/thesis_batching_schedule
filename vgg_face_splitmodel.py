@@ -26,6 +26,22 @@ from keras.callbacks import TensorBoard
 import vgg_face_splitmodel
 
 
+def prepare():
+    global request_end_flag, picture_files, G, model
+    request_end_flag = False
+    basestr = 'splitmodel'
+    file_path = './data' + "/vgg_face_" + basestr + ".h5"
+    test_path = "./data/test/"
+    submission = pd.read_csv('./data/sample_submission.csv')
+    picture_files_tmp = submission.img_pair.values
+    X1 = [test_path + x.split("-")[0] for x in picture_files_tmp]
+    X2 = [test_path + x.split("-")[1] for x in picture_files_tmp]
+    picture_files = list(zip(X1, X2))
+    G = tf.get_default_graph()
+    model = baseline_model()
+    model.load_weights(file_path)
+
+
 def nextTime(rateParameter):
     return -math.log(1.0 - random.random()) / rateParameter
 
@@ -106,7 +122,7 @@ def detect_outliers2(df):
 
 
 def add_task():
-    global task_num, request_end_flag# , workload_time, workload_num, lock
+    global task_num, request_end_flag, picture_files# , workload_time, workload_num, lock
     for wt in arriving_proccess:
         lock.acquire()
         task_queue.append(choice(picture_files))
@@ -126,7 +142,7 @@ def add_task():
 
 
 def do_task(schedule):
-    global task_num, request_end_flag, G  # , workload_time, workload_num, lock
+    global task_num, request_end_flag, G, model  # , workload_time, workload_num, lock
     while task_queue or not request_end_flag:
         if not task_queue:
             continue
@@ -203,48 +219,23 @@ if __name__ == '__main__':
     '''
         prepare data
     '''
-    request_end_flag = False
-    Bjob_times = []
-    basestr = 'splitmodel'
-    train_file_path = "./data/train_relationships.csv"
-    train_folders_path = "./data/train/"
-    val_famillies = "F09"
-    all_images = glob(train_folders_path + "*/*/*.jpg")
-    train_images = [x for x in all_images if val_famillies not in x]
-    val_images = [x for x in all_images if val_famillies in x]
-    train_person_to_images_map = defaultdict(list)
-    ppl = [x.split("/")[-3] + "/" + x.split("/")[-2] for x in all_images]
-    for x in train_images:
-        train_person_to_images_map[x.split("/")[-3] + "/" + x.split("/")[-2]].append(x)
-    val_person_to_images_map = defaultdict(list)
-    for x in val_images:
-        val_person_to_images_map[x.split("/")[-3] + "/" + x.split("/")[-2]].append(x)
-    relationships = pd.read_csv(train_file_path)
-    relationships = list(zip(relationships.p1.values, relationships.p2.values))
-    relationships = [x for x in relationships if x[0] in ppl and x[1] in ppl]
-    train = [x for x in relationships if val_famillies not in x[0]]
-    val = [x for x in relationships if val_famillies in x[0]]
-    file_path = './data' + "/vgg_face_" + basestr + ".h5"
-    test_path = "./data/test/"
-    submission = pd.read_csv('./data/sample_submission.csv')
-    picture_files_tmp = submission.img_pair.values
-    X1 = [test_path + x.split("-")[0] for x in picture_files_tmp]
-    X2 = [test_path + x.split("-")[1] for x in picture_files_tmp]
-    picture_files = list(zip(X1, X2))
+    prepare()
 
-    G = tf.get_default_graph()
-    model = baseline_model()
-    model.load_weights(file_path)
+    '''
+        experiment setup
+    '''
     latency_threshold = 2.5
 
     lock = threading.Lock()
 
     experiment_times = 10
     schedule_nums = 2
-    schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
+
     '''
         simulation experiment
     '''
+    # load all schedule_fun
+    schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
     area_list = []
     for _ in tqdm(range(experiment_times)):  # range(experiment times)
         arriving_proccess = []
