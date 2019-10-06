@@ -124,12 +124,14 @@ def add_task():
     request_end_flag = True
 
 
-
-def do_task():
+def do_task(schedule):
     global task_num, request_end_flag, G  # , workload_time, workload_num, lock
     while task_queue or not request_end_flag:
         if not task_queue:
             continue
+        # start using schedule
+        delay(schedule)
+        # start sending the batch and do the tasks
         try:
             lock.acquire()
             pictures_tmp = copy.copy(task_queue)
@@ -154,13 +156,52 @@ def do_task():
         picture2 = [read_img(x[1]) for x in pictures_tmp]
         with G.as_default():
             model.predict([picture1, picture2])
-
         # print("do task", tmp)
-        # print("minus:", task_num)
+        print("minus:", task_num)
+
+
+def simulate(schedule):
+    add_task_t = threading.Thread(target=add_task)
+    do_task_t = threading.Thread(target=do_task, args=(schedule,))
+    add_task_t.start()
+    do_task_t.start()
+    add_task_t.join()
+    do_task_t.join()
+
+
+def delay(schedule):
+    schedule.run()
+
+
+class Schedule:
+    def __init__(self, latency_threshold, run_fun, batch_size_threshold=0):
+        self.latency_threshold = latency_threshold
+        self.run_fun = run_fun
+        self.batch_size_threshold = batch_size_threshold
+
+    def run(self):
+        self.run_fun(self.latency_threshold, self.batch_size_threshold)
+
+'''
+    schedules' set
+'''
+
+
+def vanilla_schedule_fun(latency_threshold, batch_size_threshold=0):
+    time.sleep(latency_threshold)
+
+
+def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
+    start_delay_time = time.time()
+    while (time.time() - start_delay_time <= latency_threshold)\
+            or len(task_queue) < batch_size_threshold:
+        print('test')
 
 
 if __name__ == '__main__':
-    ########### prepare
+    '''
+        prepare data
+    '''
     request_end_flag = False
     Bjob_times = []
     basestr = 'splitmodel'
@@ -193,28 +234,39 @@ if __name__ == '__main__':
     G = tf.get_default_graph()
     model = baseline_model()
     model.load_weights(file_path)
-    ########### simulation
+    latency_threshold = 2.5
+
+    lock = threading.Lock()
+
+    experiment_times = 1
+    schedule_nums = 2
+    '''
+        simulation experiment
+    '''
     area_list = []
-    for _ in tqdm(range(1)):
+    for _ in tqdm(range(experiment_times)):  # range(experiment times)
         arriving_proccess = []
         total_arriving_time = 0
-        while total_arriving_time < 3600*0 + 60:
+        while total_arriving_time < 3600*0 + 10*1:
             next_time = nextTime(83.333)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
+        ########################################
+        ############ vanilla schedule###########
+        ########################################
         task_queue = []
+        task_num = 0
         workload_time = []
         workload_num = []
-        task_num = 0
-        lock = threading.Lock()
-        add_task_t = threading.Thread(target=add_task)
-        do_task_t = threading.Thread(target=do_task)
-        add_task_t.start()
-        do_task_t.start()
-        add_task_t.join()
-        do_task_t.join()
+        other_schedule = Schedule(latency_threshold, NinetyPercent_schedule_fun)
+        # start simulation
+        simulate(other_schedule)
+        # shift time to zero
+        workload_time = [x-workload_time[0] for x in workload_time]
+        # sort via workload_time
         workload_data = np.array([workload_time, workload_num])
-        workload_data.T[np.lexsort(workload_data[::-1, :])].T
+        workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
+        # compute area
         area = 0
         for i in range(len(workload_time)):
             if i == len(workload_time)-1:
@@ -222,10 +274,50 @@ if __name__ == '__main__':
             area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
         area_list.append(area)
         pt.plot(workload_data[0, :], workload_data[1, :])
-    pt.figure()
-    sns.distplot(area_list)
-    print("finish")
+        ########################################
+        ##############our schedule##############
+        ########################################
+        task_queue = []
+        task_num = 0
+        workload_time = []
+        workload_num = []
+        our_schedule = Schedule(latency_threshold, NinetyPercent_schedule_fun, 100)
+        # start simulation
+        simulate(our_schedule)
+        # shift time to zero
+        workload_time = [x-workload_time[0] for x in workload_time]
+        # sort via workload_time
+        workload_data = np.array([workload_time, workload_num])
+        workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
+        # compute area
+        area = 0
+        for i in range(len(workload_time)):
+            if i == len(workload_time) - 1:
+                break
+            area += workload_data[1, i] * (workload_data[0, i + 1] - workload_data[0, i])
+        area_list.append(area)
+        pt.plot(workload_data[0, :], workload_data[1, :])
+    # compare area data
+    area_data = np.empty((schedule_nums, experiment_times))
+    sub_id_list = [0]*schedule_nums
+    for id, el in enumerate(area_list):
+        mod = (id+1)%2
+        if mod == 1:
+            area_data[0, sub_id_list[0]] = el
+            sub_id_list[0] += 1
+        if mod == 0:
+            area_data[1, sub_id_list[1]] = el
+            sub_id_list[1] += 1
+    if experiment_times > 1:
+        pt.figure()
+        for id in range(schedule_nums):
+            sns.distplot(area_data[id, :])
+    print("Finish simulation experiment")
 
+
+    '''
+        estimate parameter
+    '''
     # ########### plot A(n)
     # model = baseline_model()
     # model.load_weights(file_path)
@@ -260,5 +352,5 @@ if __name__ == '__main__':
     #     predictions = regression_model.predict([[x] for x in batch_size_tmp])
     #     pt.plot(batch_size_tmp, predictions.ravel())
     #     print("K: ", regression_model.coef_.ravel()[0])
-        # sns.violinplot(data=pd.DataFrame(full_data_predict).T)
+    #     sns.violinplot(data=pd.DataFrame(full_data_predict).T)
 
