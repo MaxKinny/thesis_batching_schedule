@@ -126,7 +126,7 @@ def add_task():
 
 
 def do_task():
-    global task_num, request_end_flag  # , workload_time, workload_num, lock
+    global task_num, request_end_flag, G  # , workload_time, workload_num, lock
     while task_queue or not request_end_flag:
         if not task_queue:
             continue
@@ -148,15 +148,12 @@ def do_task():
         finally:
             lock.release()
         ### do tasks with schedule
-        start_time = time.time()
-        model = baseline_model()
-        model.load_weights(file_path)
-        end_time = time.time()
-        Bjob_times.append(end_time - start_time)
-
+        time.sleep(0.2)  # simulate the overhead consume
+        ## predict
         picture1 = [read_img(x[0]) for x in pictures_tmp]
         picture2 = [read_img(x[1]) for x in pictures_tmp]
-        model.predict([picture1, picture2])
+        with G.as_default():
+            model.predict([picture1, picture2])
 
         # print("do task", tmp)
         # print("minus:", task_num)
@@ -193,6 +190,9 @@ if __name__ == '__main__':
     X2 = [test_path + x.split("-")[1] for x in picture_files_tmp]
     picture_files = list(zip(X1, X2))
 
+    G = tf.get_default_graph()
+    model = baseline_model()
+    model.load_weights(file_path)
     ########### simulation
     area_list = []
     for _ in tqdm(range(1)):
