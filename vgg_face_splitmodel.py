@@ -23,7 +23,7 @@ from sklearn import linear_model
 import copy
 import tensorflow as tf
 from keras.callbacks import TensorBoard
-
+import vgg_face_splitmodel
 
 def nextTime(rateParameter):
     return -math.log(1.0 - random.random()) / rateParameter
@@ -240,6 +240,7 @@ if __name__ == '__main__':
 
     experiment_times = 1
     schedule_nums = 2
+    schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
     '''
         simulation experiment
     '''
@@ -251,57 +252,33 @@ if __name__ == '__main__':
             next_time = nextTime(83.333)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
-        ########################################
-        ############ vanilla schedule###########
-        ########################################
-        task_queue = []
-        task_num = 0
-        workload_time = []
-        workload_num = []
-        other_schedule = Schedule(latency_threshold, NinetyPercent_schedule_fun)
-        # start simulation
-        simulate(other_schedule)
-        # shift time to zero
-        workload_time = [x-workload_time[0] for x in workload_time]
-        # sort via workload_time
-        workload_data = np.array([workload_time, workload_num])
-        workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
-        # compute area
-        area = 0
-        for i in range(len(workload_time)):
-            if i == len(workload_time)-1:
-                break
-            area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
-        area_list.append(area)
-        pt.plot(workload_data[0, :], workload_data[1, :])
-        ########################################
-        ##############our schedule##############
-        ########################################
-        task_queue = []
-        task_num = 0
-        workload_time = []
-        workload_num = []
-        our_schedule = Schedule(latency_threshold, NinetyPercent_schedule_fun, 100)
-        # start simulation
-        simulate(our_schedule)
-        # shift time to zero
-        workload_time = [x-workload_time[0] for x in workload_time]
-        # sort via workload_time
-        workload_data = np.array([workload_time, workload_num])
-        workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
-        # compute area
-        area = 0
-        for i in range(len(workload_time)):
-            if i == len(workload_time) - 1:
-                break
-            area += workload_data[1, i] * (workload_data[0, i + 1] - workload_data[0, i])
-        area_list.append(area)
-        pt.plot(workload_data[0, :], workload_data[1, :])
+        pt.figure()
+        for schedule_fun in schedule_fn_list:
+            task_queue = []
+            task_num = 0
+            workload_time = []
+            workload_num = []
+            current_schedule = Schedule(latency_threshold, schedule_fun)
+            # start simulation
+            simulate(current_schedule)
+            # shift time to zero
+            workload_time = [x-workload_time[0] for x in workload_time]
+            # sort via workload_time
+            workload_data = np.array([workload_time, workload_num])
+            workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
+            # compute area
+            area = 0
+            for i in range(len(workload_time)):
+                if i == len(workload_time)-1:
+                    break
+                area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
+            area_list.append(area)
+            pt.plot(workload_data[0, :], workload_data[1, :])
     # compare area data
     area_data = np.empty((schedule_nums, experiment_times))
     sub_id_list = [0]*schedule_nums
     for id, el in enumerate(area_list):
-        mod = (id+1)%2
+        mod = (id+1) % 2
         if mod == 1:
             area_data[0, sub_id_list[0]] = el
             sub_id_list[0] += 1
