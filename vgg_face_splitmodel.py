@@ -25,6 +25,7 @@ import tensorflow as tf
 from keras.callbacks import TensorBoard
 import vgg_face_splitmodel
 
+
 def nextTime(rateParameter):
     return -math.log(1.0 - random.random()) / rateParameter
 
@@ -195,7 +196,7 @@ def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
     start_delay_time = time.time()
     while (time.time() - start_delay_time <= latency_threshold)\
             or len(task_queue) < batch_size_threshold:
-        print('test')
+        pass
 
 
 if __name__ == '__main__':
@@ -238,7 +239,7 @@ if __name__ == '__main__':
 
     lock = threading.Lock()
 
-    experiment_times = 1
+    experiment_times = 10
     schedule_nums = 2
     schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
     '''
