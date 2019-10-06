@@ -229,6 +229,7 @@ if __name__ == '__main__':
     lock = threading.Lock()
 
     experiment_times = 10
+
     schedule_nums = 2
 
     '''
@@ -255,7 +256,7 @@ if __name__ == '__main__':
             simulate(current_schedule)
             # shift time to zero
             workload_time = [x-workload_time[0] for x in workload_time]
-            # sort via workload_time
+            # sort by workload_time
             workload_data = np.array([workload_time, workload_num])
             workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
             # compute area
@@ -264,7 +265,7 @@ if __name__ == '__main__':
                 if i == len(workload_time)-1:
                     break
                 area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
-            area_list.append(area)
+            area_list.append(area/workload_time[-1])
             pt.plot(workload_data[0, :], workload_data[1, :])
     # compare area data
     area_data = np.empty((schedule_nums, experiment_times))
