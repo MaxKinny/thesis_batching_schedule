@@ -232,6 +232,8 @@ if __name__ == '__main__':
 
     schedule_nums = 2
 
+    simulating_time = 3600*0 + 60*0 + 5*1
+
     '''
         simulation experiment
     '''
@@ -241,7 +243,7 @@ if __name__ == '__main__':
     for _ in tqdm(range(experiment_times)):  # range(experiment times)
         arriving_proccess = []
         total_arriving_time = 0
-        while total_arriving_time < 3600*0 + 10*1:
+        while total_arriving_time < simulating_time:
             next_time = nextTime(83.333)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
@@ -267,23 +269,24 @@ if __name__ == '__main__':
                 area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
             area_list.append(area/workload_time[-1])
             pt.plot(workload_data[0, :], workload_data[1, :])
-    # compare area data
+
+    '''
+        experiment results process
+    '''
+    # compare area
     area_data = np.empty((schedule_nums, experiment_times))
     sub_id_list = [0]*schedule_nums
     for id, el in enumerate(area_list):
-        mod = (id+1) % 2
-        if mod == 1:
-            area_data[0, sub_id_list[0]] = el
-            sub_id_list[0] += 1
-        if mod == 0:
-            area_data[1, sub_id_list[1]] = el
-            sub_id_list[1] += 1
+        mod = (id+1) % schedule_nums
+        area_data[mod-1, sub_id_list[mod-1]] = el
+        sub_id_list[mod-1] += 1
     if experiment_times > 1:
         pt.figure()
         for id in range(schedule_nums):
             sns.distplot(area_data[id, :])
+            # 30s:array([686.14279103, 957.18316735])  10s:array([524.92360604, 807.43032252])
+            # 5s:
     print("Finish simulation experiment")
-
 
     '''
         estimate parameter
