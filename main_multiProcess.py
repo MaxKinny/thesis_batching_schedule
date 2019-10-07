@@ -178,7 +178,7 @@ def do_task(schedule, lock, task_queue, task_num, workload_num,
             pass
         finally:
             lock.release()
-        ### do tasks with schedule
+        ### do tasks
         time.sleep(0.2)  # simulate the overhead consume
         ## predict
         picture1 = [read_img(x[0]) for x in pictures_tmp]
@@ -226,10 +226,9 @@ def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
     start_delay_time = time.time()
-    time.sleep(1)
-    # while time.time() - start_delay_time < latency_threshold and\
-    #         len(task_queue) < batch_size_threshold:
-    #     pass
+    while time.time() - start_delay_time < latency_threshold and \
+            task_num.value < batch_size_threshold:
+        pass
 
 
 if __name__ == '__main__':

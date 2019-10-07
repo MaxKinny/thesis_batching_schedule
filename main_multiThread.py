@@ -27,7 +27,7 @@ import main_multiThread
 
 
 def prepare():
-    global request_end_flag, picture_files, G, model
+    global request_end_flag, picture_files, G, model, lock, signal
     request_end_flag = False
     basestr = 'splitmodel'
     file_path = './data' + "/vgg_face_" + basestr + ".h5"
@@ -40,6 +40,9 @@ def prepare():
     G = tf.get_default_graph()
     model = baseline_model()
     model.load_weights(file_path)
+
+    lock = threading.Lock()
+    signal = threading.Event()
 
 
 def nextTime(rateParameter):
@@ -122,17 +125,17 @@ def detect_outliers2(df):
 
 
 def add_task():
-    global task_num, request_end_flag, picture_files# , workload_time, workload_num, lock
+    global task_num, request_end_flag, picture_files
     for wt in arriving_proccess:
         lock.acquire()
         task_queue.append(choice(picture_files))
         task_num += 1
+        if len(task_queue) >= 100:
+            signal.set()
         cur_time = time.time()
-        try:
+        if workload_num:
             workload_num.append(workload_num[-1])
             workload_time.append(cur_time)
-        except:
-            pass
         workload_time.append(cur_time)
         workload_num.append(task_num)
         lock.release()
@@ -149,30 +152,29 @@ def do_task(schedule):
         # start using schedule
         delay(schedule)
         # start sending the batch and do the tasks
-        try:
-            lock.acquire()
-            pictures_tmp = copy.copy(task_queue)
-            task_num -= len(task_queue)
-            task_queue[:] = []
-            cur_time = time.time()
-            try:
-                workload_num.append(workload_num[-1])
-                workload_time.append(cur_time)
-            except:
-                pass
-            workload_time.append(cur_time)
-            workload_num.append(task_num)
-        except:
-            pass
-        finally:
-            lock.release()
-        ### do tasks with schedule
-        time.sleep(0.2)  # simulate the overhead consume
+        lock.acquire()
+        pictures_tmp = copy.copy(task_queue)
+        task_queue[:] = []
+        lock.release()
+        ### do tasks
+        time.sleep(0.2)  # simulate the overhead consume(IO bound)
         ## predict
-        picture1 = [read_img(x[0]) for x in pictures_tmp]
+        t1 = time.time()
+        picture1 = [read_img(x[0]) for x in pictures_tmp]  # (IO bound)
         picture2 = [read_img(x[1]) for x in pictures_tmp]
         with G.as_default():
-            model.predict([picture1, picture2])
+            model.predict([picture1, picture2])  # (IO bound)
+        predit_times.append(time.time() - t1)
+        ## dequeue
+        cur_time = time.time()
+        lock.acquire()
+        task_num -= len(pictures_tmp)
+        if workload_num:
+            workload_num.append(workload_num[-1])
+            workload_time.append(cur_time)
+        workload_time.append(cur_time)
+        workload_num.append(task_num)
+        lock.release()
         # print("do task", tmp)
         # print("minus:", task_num)
 
@@ -209,10 +211,7 @@ def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
 
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
-    start_delay_time = time.time()
-    while time.time() - start_delay_time < latency_threshold and\
-            len(task_queue) < batch_size_threshold:
-        pass
+    signal.wait()
 
 
 if __name__ == '__main__':
@@ -228,15 +227,13 @@ if __name__ == '__main__':
 
     latency_threshold = 2
 
-    lock = threading.Lock()
-
     experiment_times = 1
 
     schedule_nums = 2
 
-    simulating_time = 3600*0 + 60*0 + 5*1
+    simulating_time = 3600*0 + 60*0 + 1*5
 
-    MTBT = 1 / 1.333  # Mean Time Between Task
+    MTBT = 1 / 83.333  # Mean Time Between Task
 
     '''
         simulation experiment begin
@@ -244,6 +241,7 @@ if __name__ == '__main__':
     # load all schedule_fun
     schedule_fn_list = [eval(x) for x in dir(main_multiThread) if 'schedule_fun' in x]
     area_list = []
+    predit_times = []
     for _ in tqdm(range(experiment_times)):  # range(experiment times)
         arriving_proccess = []
         total_arriving_time = 0
@@ -254,7 +252,7 @@ if __name__ == '__main__':
         pt.figure()
         for schedule_fun in schedule_fn_list:
             task_queue = []
-            task_num = 0
+            task_num = 0  # waiting tasks' num
             workload_time = []
             workload_num = []
             current_schedule = Schedule(latency_threshold, schedule_fun, batch_size_threshold)
@@ -331,4 +329,3 @@ if __name__ == '__main__':
     #     pt.plot(batch_size_tmp, predictions.ravel())
     #     print("K: ", regression_model.coef_.ravel()[0])
     #     sns.violinplot(data=pd.DataFrame(full_data_predict).T)
-
