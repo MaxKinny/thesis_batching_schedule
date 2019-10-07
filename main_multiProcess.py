@@ -25,19 +25,20 @@ import copy
 import tensorflow as tf
 from keras.callbacks import TensorBoard
 import main_multiProcess
+from ctypes import c_bool
+from tensorflow import get_default_graph
 
 
 def prepare():
-    global request_end_flag, picture_files, G, model, lock
+    global p_mgr, lock, picture_files, file_path
     '''
         prepare for mulit-processing
     '''
     p_mgr = multiprocessing.Manager()
-    lock = threading.Lock()  # need to be shared among processes
+    lock = multiprocessing.Lock()
     '''
         prepare for gpu data
     '''
-    request_end_flag = False # need to be shared among processes
     basestr = 'splitmodel'
     file_path = './data' + "/vgg_face_" + basestr + ".h5"
     test_path = "./data/test/"
@@ -45,12 +46,7 @@ def prepare():
     picture_files_tmp = submission.img_pair.values
     X1 = [test_path + x.split("-")[0] for x in picture_files_tmp]
     X2 = [test_path + x.split("-")[1] for x in picture_files_tmp]
-    picture_files = list(zip(X1, X2))  # need to be shared among processes
-    G = tf.get_default_graph()  # need to be shared among processes
-    model = baseline_model()  # need to be shared among processes
-    model.load_weights(file_path)
-
-
+    picture_files = list(zip(X1, X2))
 
 
 def nextTime(rateParameter):
@@ -132,12 +128,14 @@ def detect_outliers2(df):
     return df
 
 
-def add_task():
-    global task_num, request_end_flag, picture_files, lock
+def add_task(lock, task_queue, task_num, workload_num, workload_time,
+             request_end_flag, picture_files, load_weight_flag):
+    while not load_weight_flag.value:
+        pass
     for wt in arriving_proccess:
         lock.acquire()
         task_queue.append(choice(picture_files))
-        task_num += 1
+        task_num.value += 1
         cur_time = time.time()
         try:
             workload_num.append(workload_num[-1])
@@ -145,16 +143,19 @@ def add_task():
         except:
             pass
         workload_time.append(cur_time)
-        workload_num.append(task_num)
+        workload_num.append(task_num.value)
         lock.release()
         time.sleep(wt)  # wait until next arrival
         # print("plus:", task_num)
-    request_end_flag = True
+    request_end_flag.value = True
 
 
-def do_task(schedule):
-    global task_num, request_end_flag, G, model, lock
-    while task_queue or not request_end_flag:
+def do_task(schedule, lock, task_queue, task_num, workload_num,
+            workload_time, request_end_flag, file_path, load_weight_flag):
+    model = baseline_model()  # need to be shared among processes?
+    model.load_weights(file_path)
+    load_weight_flag.value = True
+    while task_queue or not request_end_flag.value:
         if not task_queue:
             continue
         # start using schedule
@@ -163,7 +164,7 @@ def do_task(schedule):
         try:
             lock.acquire()
             pictures_tmp = copy.copy(task_queue)
-            task_num -= len(task_queue)
+            task_num.value -= len(task_queue)
             task_queue[:] = []
             cur_time = time.time()
             try:
@@ -172,7 +173,7 @@ def do_task(schedule):
             except:
                 pass
             workload_time.append(cur_time)
-            workload_num.append(task_num)
+            workload_num.append(task_num.value)
         except:
             pass
         finally:
@@ -182,19 +183,23 @@ def do_task(schedule):
         ## predict
         picture1 = [read_img(x[0]) for x in pictures_tmp]
         picture2 = [read_img(x[1]) for x in pictures_tmp]
-        with G.as_default():
-            model.predict([picture1, picture2])
+        model.predict([picture1, picture2])
         # print("do task", tmp)
         # print("minus:", task_num)
 
 
-def simulate(schedule):
-    add_task_t = threading.Thread(target=add_task)
-    do_task_t = threading.Thread(target=do_task, args=(schedule,))
-    add_task_t.start()
-    do_task_t.start()
-    add_task_t.join()
-    do_task_t.join()
+def simulate(schedule, lock, task_queue, task_num,
+             workload_num, workload_time, request_end_flag, picture_files, file_path, load_weight_flag):
+    add_task_p = multiprocessing.Process(target=add_task, args=(lock, task_queue,
+                        task_num, workload_num, workload_time, request_end_flag, picture_files, load_weight_flag),
+                                         name='add_task')
+    do_task_p = multiprocessing.Process(target=do_task, args=(schedule, lock,
+                  task_queue, task_num, workload_num, workload_time, request_end_flag, file_path, load_weight_flag),
+                                        name='do_task')
+    add_task_p.start()
+    do_task_p.start()
+    add_task_p.join()
+    do_task_p.join()
 
 
 def delay(schedule):
@@ -221,9 +226,10 @@ def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
     start_delay_time = time.time()
-    while time.time() - start_delay_time < latency_threshold and\
-            len(task_queue) < batch_size_threshold:
-        pass
+    time.sleep(1)
+    # while time.time() - start_delay_time < latency_threshold and\
+    #         len(task_queue) < batch_size_threshold:
+    #     pass
 
 
 if __name__ == '__main__':
@@ -245,6 +251,8 @@ if __name__ == '__main__':
 
     simulating_time = 3600*0 + 60*0 + 5*1
 
+    MTBT = 1/83.333  # Mean Time Between Task
+
     '''
         simulation experiment begin
     '''
@@ -255,18 +263,21 @@ if __name__ == '__main__':
         arriving_proccess = []
         total_arriving_time = 0
         while total_arriving_time < simulating_time:
-            next_time = nextTime(83.333)  # nextTime(lambda)
+            next_time = nextTime(1/MTBT)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
         pt.figure()
         for schedule_fun in schedule_fn_list:
-            task_queue = []  # need to be shared among processes
-            task_num = 0  # need to be shared among processes
-            workload_time = []  # need to be shared among processes
-            workload_num = []  # need to be shared among processes
+            request_end_flag = p_mgr.Value(c_bool, False)  # need to be shared among processes
+            load_weight_flag = p_mgr.Value(c_bool, False)  # need to be shared among processes
+            task_queue = p_mgr.list([])  # need to be shared among processes
+            task_num = p_mgr.Value('i', 0)  # need to be shared among processes
+            workload_time = p_mgr.list([])  # need to be shared among processes
+            workload_num = p_mgr.list([])  # need to be shared among processes
             current_schedule = Schedule(latency_threshold, schedule_fun, batch_size_threshold)
             # start simulation
-            simulate(current_schedule)
+            simulate(current_schedule, lock, task_queue, task_num,
+                    workload_num, workload_time, request_end_flag, picture_files, file_path, load_weight_flag)
             # shift time to zero
             workload_time = [x-workload_time[0] for x in workload_time]
             # sort by workload_time
@@ -281,6 +292,7 @@ if __name__ == '__main__':
             area_list.append(area/workload_time[-1])
             pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
             pt.legend()
+        pt.show()
 
     '''
         process experiment results 

@@ -236,6 +236,8 @@ if __name__ == '__main__':
 
     simulating_time = 3600*0 + 60*0 + 5*1
 
+    MTBT = 1 / 1.333  # Mean Time Between Task
+
     '''
         simulation experiment begin
     '''
@@ -246,7 +248,7 @@ if __name__ == '__main__':
         arriving_proccess = []
         total_arriving_time = 0
         while total_arriving_time < simulating_time:
-            next_time = nextTime(83.333)  # nextTime(lambda)
+            next_time = nextTime(1/MTBT)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
         pt.figure()
@@ -272,6 +274,7 @@ if __name__ == '__main__':
             area_list.append(area/workload_time[-1])
             pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
             pt.legend()
+        pt.show()
 
     '''
         process experiment results 
