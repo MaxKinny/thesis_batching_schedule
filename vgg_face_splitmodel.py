@@ -137,7 +137,7 @@ def add_task():
         workload_num.append(task_num)
         lock.release()
         time.sleep(wt)  # wait until next arrival
-        print("plus:", task_num)
+        # print("plus:", task_num)
     request_end_flag = True
 
 
@@ -174,7 +174,7 @@ def do_task(schedule):
         with G.as_default():
             model.predict([picture1, picture2])
         # print("do task", tmp)
-        print("minus:", task_num)
+        # print("minus:", task_num)
 
 
 def simulate(schedule):
@@ -204,14 +204,14 @@ class Schedule:
 '''
 
 
-def vanilla_schedule_fun(latency_threshold, batch_size_threshold=0):
+def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
     time.sleep(latency_threshold)
 
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
     start_delay_time = time.time()
-    while (time.time() - start_delay_time <= latency_threshold)\
-            or len(task_queue) < batch_size_threshold:
+    while time.time() - start_delay_time < latency_threshold and\
+            len(task_queue) < batch_size_threshold:
         pass
 
 
@@ -224,18 +224,20 @@ if __name__ == '__main__':
     '''
         experiment setup
     '''
-    latency_threshold = 2.5
+    batch_size_threshold = 100
+
+    latency_threshold = 2
 
     lock = threading.Lock()
 
-    experiment_times = 10
+    experiment_times = 1
 
     schedule_nums = 2
 
     simulating_time = 3600*0 + 60*0 + 5*1
 
     '''
-        simulation experiment
+        simulation experiment begin
     '''
     # load all schedule_fun
     schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
@@ -253,14 +255,14 @@ if __name__ == '__main__':
             task_num = 0
             workload_time = []
             workload_num = []
-            current_schedule = Schedule(latency_threshold, schedule_fun)
+            current_schedule = Schedule(latency_threshold, schedule_fun, batch_size_threshold)
             # start simulation
             simulate(current_schedule)
             # shift time to zero
             workload_time = [x-workload_time[0] for x in workload_time]
             # sort by workload_time
             workload_data = np.array([workload_time, workload_num])
-            workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
+            # workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
             # compute area
             area = 0
             for i in range(len(workload_time)):
@@ -268,10 +270,11 @@ if __name__ == '__main__':
                     break
                 area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
             area_list.append(area/workload_time[-1])
-            pt.plot(workload_data[0, :], workload_data[1, :])
+            pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
+            pt.legend()
 
     '''
-        experiment results process
+        process experiment results 
     '''
     # compare area
     area_data = np.empty((schedule_nums, experiment_times))
@@ -283,9 +286,8 @@ if __name__ == '__main__':
     if experiment_times > 1:
         pt.figure()
         for id in range(schedule_nums):
-            sns.distplot(area_data[id, :])
-            # 30s:array([686.14279103, 957.18316735])  10s:array([524.92360604, 807.43032252])
-            # 5s:
+            sns.distplot(area_data[id, :], label=schedule_fn_list[id].__name__[:-4])
+            pt.legend()
     print("Finish simulation experiment")
 
     '''
