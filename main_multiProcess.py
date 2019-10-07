@@ -24,7 +24,7 @@ from sklearn import linear_model
 import copy
 import tensorflow as tf
 from keras.callbacks import TensorBoard
-import vgg_face_splitmodel
+import main_multiProcess
 
 
 def prepare():
@@ -249,7 +249,7 @@ if __name__ == '__main__':
         simulation experiment begin
     '''
     # load all schedule_fun
-    schedule_fn_list = [eval(x) for x in dir(vgg_face_splitmodel) if 'schedule_fun' in x]
+    schedule_fn_list = [eval(x) for x in dir(main_multiProcess) if 'schedule_fun' in x]
     area_list = []
     for _ in tqdm(range(experiment_times)):  # range(experiment times)
         arriving_proccess = []
