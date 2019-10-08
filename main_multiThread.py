@@ -27,7 +27,8 @@ import main_multiThread
 
 
 def prepare():
-    global request_end_flag, picture_files, G, model, lock, signal
+    global request_end_flag, picture_files, G, model, lock,\
+        signal, picture_files_tmp, test_path
     request_end_flag = False
     basestr = 'splitmodel'
     file_path = './data' + "/vgg_face_" + basestr + ".h5"
@@ -129,16 +130,17 @@ def add_task():
     for wt in arriving_proccess:
         lock.acquire()
         task_queue.append(choice(picture_files))
-        task_num += 1
-        if len(task_queue) >= 100:
-            signal.set()
         cur_time = time.time()
+        task_num += 1
         if workload_num:
             workload_num.append(workload_num[-1])
             workload_time.append(cur_time)
         workload_time.append(cur_time)
         workload_num.append(task_num)
         lock.release()
+        if len(task_queue) >= 100:
+            signal.set()
+            time.sleep(2)
         time.sleep(wt)  # wait until next arrival
         # print("plus:", task_num)
     request_end_flag = True
@@ -175,6 +177,7 @@ def do_task(schedule):
         workload_time.append(cur_time)
         workload_num.append(task_num)
         lock.release()
+        signal.clear()
         # print("do task", tmp)
         # print("minus:", task_num)
 
@@ -211,7 +214,7 @@ def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
 
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
-    signal.wait()
+    signal.wait(3)
 
 
 if __name__ == '__main__':
@@ -234,6 +237,17 @@ if __name__ == '__main__':
     simulating_time = 3600*0 + 60*0 + 1*5
 
     MTBT = 1 / 83.333  # Mean Time Between Task
+
+    '''
+        warm up GPU
+    '''
+    for batch in tqdm(chunker(picture_files_tmp, 64)):
+        time_start = time.time()
+        X1 = [x.split("-")[0] for x in batch]
+        X1 = [read_img(test_path + x) for x in X1]
+        X2 = [x.split("-")[1] for x in batch]
+        X2 = [read_img(test_path + x) for x in X2]
+        model.predict([X1, X2])
 
     '''
         simulation experiment begin
