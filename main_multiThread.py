@@ -126,47 +126,48 @@ def detect_outliers2(df):
 
 
 def add_task():
-    global task_num, request_end_flag, picture_files
+    global task_num, request_end_flag, picture_files, working_flag
     for wt in arriving_proccess:
-        lock.acquire()
-        task_queue.append(choice(picture_files))
-        cur_time = time.time()
-        task_num += 1
-        if workload_num:
-            workload_num.append(workload_num[-1])
+        if not working_flag:
+            lock.acquire()
+            task_queue.append(choice(picture_files))
+            cur_time = time.time()
+            task_num += 1
+            if workload_num:
+                workload_num.append(workload_num[-1])
+                workload_time.append(cur_time)
             workload_time.append(cur_time)
-        workload_time.append(cur_time)
-        workload_num.append(task_num)
-        lock.release()
+            workload_num.append(task_num)
+            lock.release()
         if len(task_queue) >= 100:
             signal.set()
-            time.sleep(2)
         time.sleep(wt)  # wait until next arrival
         # print("plus:", task_num)
     request_end_flag = True
 
 
 def do_task(schedule):
-    global task_num, request_end_flag, G, model  # , workload_time, workload_num, lock
+    global task_num, request_end_flag, G, model, working_flag  # , workload_time, workload_num, lock
     while task_queue or not request_end_flag:
-        if not task_queue:
+        if not task_queue:  # in case that MBTT is too large
             continue
         # start using schedule
         delay(schedule)
         # start sending the batch and do the tasks
+        working_flag = True
         lock.acquire()
-        pictures_tmp = copy.copy(task_queue)
-        task_queue[:] = []
+        pictures_tmp = copy.copy(task_queue)  # cpu bound
+        task_queue[:] = []  # cpu bound
         lock.release()
         ### do tasks
         time.sleep(0.2)  # simulate the overhead consume(IO bound)
         ## predict
-        t1 = time.time()
+        # t1 = time.time()
         picture1 = [read_img(x[0]) for x in pictures_tmp]  # (IO bound)
-        picture2 = [read_img(x[1]) for x in pictures_tmp]
+        picture2 = [read_img(x[1]) for x in pictures_tmp]  # (IO bound)
         with G.as_default():
             model.predict([picture1, picture2])  # (IO bound)
-        predit_times.append(time.time() - t1)
+        # predit_times.append(time.time() - t1)
         ## dequeue
         cur_time = time.time()
         lock.acquire()
@@ -177,6 +178,7 @@ def do_task(schedule):
         workload_time.append(cur_time)
         workload_num.append(task_num)
         lock.release()
+        working_flag = False
         signal.clear()
         # print("do task", tmp)
         # print("minus:", task_num)
@@ -265,6 +267,7 @@ if __name__ == '__main__':
             total_arriving_time += next_time
         pt.figure()
         for schedule_fun in schedule_fn_list:
+            working_flag = False  # producer thread will monitor it pretending to feed to another worker
             task_queue = []
             task_num = 0  # waiting tasks' num
             workload_time = []
