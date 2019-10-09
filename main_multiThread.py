@@ -211,7 +211,7 @@ class Schedule:
 
 
 def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
-    time.sleep(2)
+    time.sleep(latency_threshold)
 
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
@@ -231,7 +231,7 @@ if __name__ == '__main__':
 
     latency_threshold = 2
 
-    experiment_times = 1
+    experiment_times = 500
 
     schedule_nums = 2
 
@@ -264,7 +264,7 @@ if __name__ == '__main__':
             next_time = nextTime(1/MTBT)  # nextTime(lambda)
             arriving_proccess.append(next_time)
             total_arriving_time += next_time
-        pt.figure()
+        ## pt.figure()
         for schedule_fun in schedule_fn_list:
             working_flag = False  # producer thread will monitor it pretending to feed to another worker
             request_end_flag = False  # mark whether producer thread is end
@@ -287,9 +287,9 @@ if __name__ == '__main__':
                     break
                 area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
             area_list.append(area/workload_time[-1])
-            pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
-            pt.legend()
-        pt.show()
+            # pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
+            # pt.legend()
+        # pt.show()
 
     '''
         process experiment results 
@@ -306,6 +306,7 @@ if __name__ == '__main__':
         for id in range(schedule_nums):
             sns.distplot(area_data[id, :], label=schedule_fn_list[id].__name__[:-4])
             pt.legend()
+    pt.show()
     print("Finish simulation experiment")
 
     '''
