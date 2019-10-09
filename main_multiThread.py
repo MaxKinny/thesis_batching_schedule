@@ -27,9 +27,8 @@ import main_multiThread
 
 
 def prepare():
-    global request_end_flag, picture_files, G, model, lock,\
+    global picture_files, G, model, lock,\
         signal, picture_files_tmp, test_path
-    request_end_flag = False
     basestr = 'splitmodel'
     file_path = './data' + "/vgg_face_" + basestr + ".h5"
     test_path = "./data/test/"
@@ -212,7 +211,7 @@ class Schedule:
 
 
 def vanilla_schedule_fun(latency_threshold, batch_size_threshold):
-    time.sleep(latency_threshold)
+    time.sleep(2)
 
 
 def NinetyPercent_schedule_fun(latency_threshold, batch_size_threshold):
@@ -268,6 +267,7 @@ if __name__ == '__main__':
         pt.figure()
         for schedule_fun in schedule_fn_list:
             working_flag = False  # producer thread will monitor it pretending to feed to another worker
+            request_end_flag = False  # mark whether producer thread is end
             task_queue = []
             task_num = 0  # waiting tasks' num
             workload_time = []
