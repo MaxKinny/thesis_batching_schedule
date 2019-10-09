@@ -159,7 +159,7 @@ def do_task(schedule):
         task_queue[:] = []  # cpu bound
         lock.release()
         ### do tasks
-        time.sleep(0.2)  # simulate the overhead consume(IO bound)
+        time.sleep(random.normalvariate(0.2, 0.01))  # simulate the overhead consume(IO bound)
         ## predict
         # t1 = time.time()
         picture1 = [read_img(x[0]) for x in pictures_tmp]  # (IO bound)
