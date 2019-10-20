@@ -24,11 +24,11 @@ import copy
 import tensorflow as tf
 from keras.callbacks import TensorBoard
 import main_multiThread
-
+from keras.applications.resnet50 import ResNet50
 
 def prepare():
-    global picture_files, G, model, lock,\
-        signal, picture_files_tmp, test_path
+    global picture_files, G, model, lock, submission,\
+        signal, picture_files_tmp, test_path, file_path
     basestr = 'splitmodel'
     file_path = './data' + "/vgg_face_" + basestr + ".h5"
     test_path = "./data/test/"
@@ -38,8 +38,8 @@ def prepare():
     X2 = [test_path + x.split("-")[1] for x in picture_files_tmp]
     picture_files = list(zip(X1, X2))
     G = tf.get_default_graph()
-    model = baseline_model()
-    model.load_weights(file_path)
+    model = ResNet50(include_top=False)
+    # model.load_weights(file_path)
 
     lock = threading.Lock()
     signal = threading.Event()
@@ -57,53 +57,6 @@ def myLoss(margin):
 
 def chunker(seq, size=32):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
-
-
-def baseline_model():
-    input_1 = Input(shape=(224, 224, 3))
-    input_2 = Input(shape=(224, 224, 3))
-
-    base_model1 = VGGFace(model='resnet50', include_top=False, name="vggface_resnet50_leg1")
-    base_model2 = VGGFace(model='resnet50', include_top=False, name="vggface_resnet50_leg2")
-
-    for x in base_model1.layers[:-3]:
-        x.trainable = True
-
-    for x in base_model2.layers[:-3]:
-        x.trainable = True
-
-    x1 = base_model1(input_1)
-    x2 = base_model2(input_2)
-
-    # x1_ = Reshape(target_shape=(7*7, 2048))(x1)
-    # x2_ = Reshape(target_shape=(7*7, 2048))(x2)
-    #
-    # x_dot = Dot(axes=[2, 2], normalize=True)([x1_, x2_])
-    # x_dot = Flatten()(x_dot)
-
-    x1 = Concatenate(axis=-1)([GlobalMaxPool2D()(x1), GlobalAvgPool2D()(x1)])
-    x2 = Concatenate(axis=-1)([GlobalMaxPool2D()(x2), GlobalAvgPool2D()(x2)])
-
-    x3 = Subtract()([x1, x2])
-    x3 = Multiply()([x3, x3])
-
-    x = Multiply()([x1, x2])
-
-    x = Concatenate(axis=-1)([x, x3])
-
-    x = Dense(100, activation="relu")(x)
-    x = Dropout(0.01)(x)
-    out = Dense(1, activation="sigmoid")(x)
-
-    model = Model([input_1, input_2], out)
-
-    # loss = myLoss(0.5)
-
-    model.compile(loss='binary_crossentropy', metrics=['acc'], optimizer=Adam(1e-5))  # default 1e-5
-
-    # model.summary()
-
-    return model
 
 
 def detect_outliers2(df):
@@ -161,14 +114,14 @@ def do_task(schedule):
         ### do tasks
         time.sleep(random.normalvariate(0.2, 0.01))  # simulate the overhead consume(IO bound)
         ## predict
-        # t1 = time.time()
+        t1 = time.time()
         picture1 = [read_img(x[0]) for x in pictures_tmp]  # (IO bound)
         picture2 = [read_img(x[1]) for x in pictures_tmp]  # (IO bound)
         with G.as_default():
             model.predict([picture1, picture2])  # (IO bound)
-        # predit_times.append(time.time() - t1)
         ## dequeue
         cur_time = time.time()
+        predit_times.append((cur_time, time.time() - t1))
         lock.acquire()
         task_num -= len(pictures_tmp)
         if workload_num:
@@ -224,126 +177,128 @@ if __name__ == '__main__':
     '''
     prepare()
 
-    '''
-        experiment setup
-    '''
-    batch_size_threshold = 100
-
-    latency_threshold = 2
-
-    experiment_times = 500
-
-    schedule_nums = 2
-
-    simulating_time = 3600*0 + 60*0 + 1*5
-
-    MTBT = 1 / 83.333  # Mean Time Between Task
-
-    '''
-        warm up GPU
-    '''
-    for batch in tqdm(chunker(picture_files_tmp, 64)):
-        time_start = time.time()
-        X1 = [x.split("-")[0] for x in batch]
-        X1 = [read_img(test_path + x) for x in X1]
-        X2 = [x.split("-")[1] for x in batch]
-        X2 = [read_img(test_path + x) for x in X2]
-        model.predict([X1, X2])
-
-    '''
-        simulation experiment begin
-    '''
-    # load all schedule_fun
-    schedule_fn_list = [eval(x) for x in dir(main_multiThread) if 'schedule_fun' in x]
-    area_list = []
-    predit_times = []
-    for _ in tqdm(range(experiment_times)):  # range(experiment times)
-        arriving_proccess = []
-        total_arriving_time = 0
-        while total_arriving_time < simulating_time:
-            next_time = nextTime(1/MTBT)  # nextTime(lambda)
-            arriving_proccess.append(next_time)
-            total_arriving_time += next_time
-        ## pt.figure()
-        for schedule_fun in schedule_fn_list:
-            working_flag = False  # producer thread will monitor it pretending to feed to another worker
-            request_end_flag = False  # mark whether producer thread is end
-            task_queue = []
-            task_num = 0  # waiting tasks' num
-            workload_time = []
-            workload_num = []
-            current_schedule = Schedule(latency_threshold, schedule_fun, batch_size_threshold)
-            # start simulation
-            simulate(current_schedule)
-            # shift time to zero
-            workload_time = [x-workload_time[0] for x in workload_time]
-            # sort by workload_time
-            workload_data = np.array([workload_time, workload_num])
-            # workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
-            # compute area
-            area = 0
-            for i in range(len(workload_time)):
-                if i == len(workload_time)-1:
-                    break
-                area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
-            area_list.append(area/workload_time[-1])
-            # pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
-            # pt.legend()
-        # pt.show()
-
-    '''
-        process experiment results 
-    '''
-    # compare area
-    area_data = np.empty((schedule_nums, experiment_times))
-    sub_id_list = [0]*schedule_nums
-    for id, el in enumerate(area_list):
-        mod = (id+1) % schedule_nums
-        area_data[mod-1, sub_id_list[mod-1]] = el
-        sub_id_list[mod-1] += 1
-    if experiment_times > 1:
-        pt.figure()
-        for id in range(schedule_nums):
-            sns.distplot(area_data[id, :], label=schedule_fn_list[id].__name__[:-4])
-            pt.legend()
-    pt.show()
-    print("Finish simulation experiment")
+    # '''
+    #     experiment setup
+    # '''
+    # batch_size_threshold = 100
+    #
+    # latency_threshold = 2
+    #
+    # experiment_times = 5
+    #
+    # schedule_nums = 2
+    #
+    # simulating_time = 3600*0 + 60*0 + 1*5
+    #
+    # MTBT = 1 / 83.333  # Mean Time Between Task
+    #
+    # '''
+    #     warm up GPU
+    # '''
+    # for batch in tqdm(chunker(picture_files_tmp, 64)):
+    #     time_start = time.time()
+    #     X1 = [x.split("-")[0] for x in batch]
+    #     X1 = [read_img(test_path + x) for x in X1]
+    #     X2 = [x.split("-")[1] for x in batch]
+    #     X2 = [read_img(test_path + x) for x in X2]
+    #     model.predict([X1, X2])
+    #
+    # '''
+    #     simulation experiment begin
+    # '''
+    # # load all schedule_fun
+    # schedule_fn_list = [eval(x) for x in dir(main_multiThread) if 'schedule_fun' in x]
+    # area_list = []
+    # predit_times = []
+    # for _ in tqdm(range(experiment_times)):  # range(experiment times)
+    #     arriving_proccess = []
+    #     total_arriving_time = 0
+    #     while total_arriving_time < simulating_time:
+    #         next_time = nextTime(1/MTBT)  # nextTime(lambda)
+    #         arriving_proccess.append(next_time)
+    #         total_arriving_time += next_time
+    #     pt.figure()
+    #     for schedule_fun in schedule_fn_list:
+    #         working_flag = False  # producer thread will monitor it pretending to feed to another worker
+    #         request_end_flag = False  # mark whether producer thread is end
+    #         task_queue = []
+    #         task_num = 0  # waiting tasks' num
+    #         workload_time = []
+    #         workload_num = []
+    #         current_schedule = Schedule(latency_threshold, schedule_fun, batch_size_threshold)
+    #         # start simulation
+    #         simulate(current_schedule)
+    #         # shift time to zero
+    #         workload_time = [x-workload_time[0] for x in workload_time]
+    #         # sort by workload_time
+    #         workload_data = np.array([workload_time, workload_num])
+    #         # workload_data = workload_data.T[np.lexsort(workload_data[::-1, :])].T
+    #         # compute area
+    #         area = 0
+    #         for i in range(len(workload_time)):
+    #             if i == len(workload_time)-1:
+    #                 break
+    #             area += workload_data[1, i]*(workload_data[0, i+1] - workload_data[0, i])
+    #         area_list.append(area/workload_time[-1])
+    #         pt.plot(workload_data[0, :], workload_data[1, :], label=schedule_fun.__name__[:-4])
+    #         pt.legend()
+    #     pt.show()
+    #
+    # '''
+    #     process experiment results
+    # '''
+    # # compare area
+    # area_data = np.empty((schedule_nums, experiment_times))
+    # sub_id_list = [0]*schedule_nums
+    # for id, el in enumerate(area_list):
+    #     mod = (id+1) % schedule_nums
+    #     area_data[mod-1, sub_id_list[mod-1]] = el
+    #     sub_id_list[mod-1] += 1
+    # if experiment_times > 1:
+    #     pt.figure()
+    #     for id in range(schedule_nums):
+    #         sns.distplot(area_data[id, :], label=schedule_fn_list[id].__name__[:-4])
+    #         pt.legend()
+    # pt.show()
+    # print("Finish simulation experiment")
 
     '''
         estimate parameter
     '''
-    # ########### plot A(n)
-    # model = baseline_model()
-    # model.load_weights(file_path)
-    # computing_time_tmp = []
-    # for batchsize in tqdm(list(range(1, 500, 50))):
-    #     predictions = []
-    #     time_per_batch = []
-    #     for batch in tqdm(chunker(submission.img_pair.values, batchsize)):
-    #         time_start = time.time()
-    #
-    #         X1 = [x.split("-")[0] for x in batch]
-    #         X1 = [read_img(test_path + x) for x in X1]
-    #         X2 = [x.split("-")[1] for x in batch]
-    #         X2 = [read_img(test_path + x) for x in X2]
-    #
-    #         model.predict([X1, X2])
-    #
-    #         time_end = time.time()
-    #
-    #         time_per_batch.append(time_end - time_start)
-    #     computing_time_tmp.append(detect_outliers2(time_per_batch))
-    #     batch_size_tmp = list(range(1, 500, 50))
-    #     computing_time = []
-    #     batch_size = []
-    #     for id, el in enumerate(computing_time_tmp):
-    #         for elel in el:
-    #             computing_time.append([elel])
-    #             batch_size.append([batch_size_tmp[id]])
-    #     pt.plot(batch_size, computing_time, 'r*')
-    #     regression_model = linear_model.LinearRegression()
-    #     regression_model.fit(batch_size, computing_time)
-    #     predictions = regression_model.predict([[x] for x in batch_size_tmp])
-    #     pt.plot(batch_size_tmp, predictions.ravel())
-    #     print("K: ", regression_model.coef_.ravel()[0])
-    #     sns.violinplot(data=pd.DataFrame(full_data_predict).T)
+    ########### plot A(n)
+    model = ResNet50(include_top=False)
+    computing_time_tmp = []
+    start_bs = 1
+    end_bs = 100
+    delta_bs = 1
+    for batchsize in tqdm(list(range(start_bs, end_bs, delta_bs))):
+        predictions = []
+        time_per_batch = []
+        for batch in tqdm(chunker(submission.img_pair.values, batchsize)):
+            time_start = time.time()
+
+            X1 = [x.split("-")[0] for x in batch]
+            X1 = [read_img(test_path + x) for x in X1]
+
+            time_start = time.time()
+
+            model.predict([X1])
+
+            time_end = time.time()
+
+            time_per_batch.append(time_end - time_start)
+        computing_time_tmp.append(detect_outliers2(time_per_batch))
+    batch_size_tmp = list(range(start_bs, end_bs, delta_bs))
+    computing_time = []
+    batch_size = []
+    for id, el in enumerate(computing_time_tmp):
+        for elel in el:
+            computing_time.append([elel])
+            batch_size.append([batch_size_tmp[id]])
+    pt.plot(batch_size, computing_time, 'r*')
+    regression_model = linear_model.LinearRegression()
+    regression_model.fit(batch_size, computing_time)
+    predictions = regression_model.predict([[x] for x in batch_size_tmp])
+    pt.plot(batch_size_tmp, predictions.ravel())
+    print("K: ", regression_model.coef_.ravel()[0])
+    # sns.violinplot(data=pd.DataFrame(full_data_predict).T)
